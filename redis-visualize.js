@@ -143,7 +143,7 @@ var port = PORT;
 var server = http.createServer(handleRequest);
 
 if (argv.indexOf('-h') !== -1 || argv.indexOf('--help') !== -1){
-  console.log('usage: redis-scanner -p [PORT]');
+  console.log('usage: redis-visualize -p [PORT]');
   return;
 }
 
