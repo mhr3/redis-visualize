@@ -1,0 +1,529 @@
+<head>
+  <style>
+  body{
+    font-family: "Arial";
+    margin: 0px;
+  }
+  input[type="text"]{
+    border: none;
+    background: none;
+    font-size: 12px;
+    outline: none;
+    padding: 0;
+  }
+  .btn{
+    background-image: linear-gradient(to bottom, #fff 0%, #e0e0e0 100%);
+    border-radius: 4px;
+    font-family: "Arial";
+    font-size: 13px;
+    padding: 6px 12px;
+    border: 1px solid #ccc;
+  }
+  .btn-xs{
+    font-size: 12px;
+    padding: 1px 5px;
+  }
+  .header{
+    background-color: beige;
+    border-bottom-style: inset;
+    padding: 12px 12px 9px;
+  }
+  .primary-chart{
+    display: inline-block;
+    height: 480px;
+    min-width: 200px;
+  }
+  .control{
+    background-color: white;
+    border-radius: 4px;
+    display: inline-block;
+    padding: 6px 12px;
+    border: 1px solid #ccc;
+  }
+  .tooltip{
+    background-color: crimson;
+    border-radius: 6px;
+    color: white;
+    font-size: small;
+    margin-top: 3px;
+    padding: 6px 6px;
+    position: absolute;
+    top: 100%;
+    left: 12px;
+    width: 90%;
+    z-index: 1;
+  }
+  </style>
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+  <script type="text/javascript">
+    google.charts.load('current', {packages: ['corechart', 'table']});
+    google.charts.setOnLoadCallback(chartsLoaded);
+
+    var clusterMap = {};
+    var numSamples = 0;
+    var keyDataTable;
+    var sizeDataTable;
+    var chart1;
+    var chart2;
+    var detailsTable;
+    var flowMode = false;
+
+    var DEFAULT_RULES = [
+      { regex: '/\\b[0-9a-f]{40}\\b/g', replacement: '${HASH}' },
+      { regex: '/\\b[-0-9a-f]{36}\\b/g', replacement: '${UUID}' },
+      { regex: '/:[-_a-z0-9]{32}\\b/gi', replacement: '${HASH}' },
+      { regex: '/\\b1[0-9]{9}\\b/g', replacement: '${TIMESTAMP}' },
+      { regex: '/\\b[0-9]+\\b/g', replacement: '${NUM}' },
+    ];
+    var defaultRulesStr;
+
+    function stringifyRules(rules, isRaw){
+      var arr = [];
+      for(var i=0; i<rules.length;i++){
+        var rule = rules[i];
+        if (isRaw) arr.push({regex: rule.regex, replacement: rule.replacement});
+        else arr.push({regex: rule.regex.toString(), replacement: rule.replacement});
+      }
+      return JSON.stringify(arr);
+    }
+
+    function populateRules() {
+      var rules = DEFAULT_RULES;
+      defaultRulesStr = stringifyRules(rules, true);
+      if (window.localStorage){
+        var saved = window.localStorage.getItem('clusteringRules');
+        if (saved){
+          rules = JSON.parse(saved);
+        }
+      }
+
+      for(var i=0; i<rules.length; i++){
+        var data = rules[i];
+        addClusteringRule(data.regex, data.replacement);
+      }
+    }
+
+    function resetRules() {
+      var tbody = document.getElementById('regex-table');
+      while(tbody.firstChild) {
+        tbody.removeChild(tbody.firstChild);
+      }
+      if (window.localStorage){
+        window.localStorage.removeItem('clusteringRules');
+      }
+      populateRules();
+    }
+
+    function removeInvokingRule(ev) {
+      var el = ev.target;
+      while(el && el.tagName !== 'TR') { el = el.parentNode; }
+
+      el.parentNode.removeChild(el);
+    }
+
+    function addClusteringRule(regex, replacement) {
+      var tbody = document.getElementById('regex-table');
+
+      var tr = document.createElement('tr');
+      var td1 = document.createElement('td');
+      var td2 = document.createElement('td');
+      {
+        var div = document.createElement('div');
+        div.className = "control";
+        var input = document.createElement('input');
+        input.type = "text";
+        input.size = 32;
+        input.value = regex;
+
+        div.appendChild(input);
+        td2.appendChild(div);
+      }
+      var td3 = document.createElement('td');
+      {
+        var div = document.createElement('div');
+        div.className = "control";
+        var input = document.createElement('input');
+        input.type = "text";
+        input.value = replacement;
+
+        div.appendChild(input);
+        td3.appendChild(div);
+      }
+      var td4 = document.createElement('td');
+      {
+        var button = document.createElement('button');
+        button.className = "control";
+        button.appendChild(document.createTextNode('Remove'));
+        button.onclick = removeInvokingRule;
+
+        td4.appendChild(button);
+      }
+      tr.appendChild(td1);
+      tr.appendChild(td2);
+      tr.appendChild(td3);
+      tr.appendChild(td4);
+      tbody.appendChild(tr);
+    }
+
+    function chartsLoaded() {
+      // Define the chart to be drawn.
+      keyDataTable = new google.visualization.DataTable();
+      keyDataTable.addColumn('string', 'Cluster');
+      keyDataTable.addColumn('number', 'Occurrences');
+      keyDataTable.addColumn('number', 'Approximate size');
+
+      sizeDataTable = new google.visualization.DataView(keyDataTable);
+      sizeDataTable.setColumns([0,2,1]);
+
+      drawChart();
+    }
+
+    function drawChart() {
+      // Instantiate and draw the chart.
+      if (!chart1){
+        chart1 = new google.visualization.PieChart(document.getElementById('keyDistributionChart'));
+        google.visualization.events.addListener(chart1, 'select', clusterSelected.bind(chart1));
+      }
+      if (!chart2){
+        chart2 = new google.visualization.PieChart(document.getElementById('keySizeChart'));
+        google.visualization.events.addListener(chart2, 'select', clusterSelected.bind(chart2));
+      }
+      var options = {
+        title: 'By occurrence (sampled ' + numSamples + ' keys)',
+        pieHole: 0.3,
+        legend: 'none'
+      };
+      chart1.draw(keyDataTable, options);
+
+      var opts2 = {
+        title: 'By size',
+        pieHole: 0.3,
+      }
+      chart2.draw(sizeDataTable, opts2);
+
+      if (detailsTable) drawDetailsTable(true);
+    }
+
+    function clusterSelected(ev) {
+      var selArr = this.getSelection();
+      if (selArr.length <= 0) return;
+
+      var clusterIndex = selArr[0].row;
+      var clusterName = keyDataTable.getValue(clusterIndex, 0);
+      displayClusterDetails(clusterName);
+    }
+
+    function drawDetailsTable(noDisplayToggle) {
+      if (!detailsTable){
+        detailsTable = new google.visualization.Table(document.getElementById('clusterTable'));
+      }
+      if (!noDisplayToggle){
+        var el = document.getElementById('clusterTablePane');
+        el.style.display = el.style.display === '' ? 'none' : '';
+      }
+      detailsTable.draw(keyDataTable, {showRowNumber: true, width: '95%', height: '250px'});
+    }
+
+    function displayClusterDetails(clusterName) {
+      var clusterIndex = clusterMap[clusterName];
+      if (clusterIndex === undefined) return;
+
+      var typeChart = new google.visualization.PieChart(document.getElementById('typeChart'));
+      var ttlChart = new google.visualization.ColumnChart(document.getElementById('ttlChart'));
+      var sizeChart = new google.visualization.Histogram(document.getElementById('sizeChart'));
+
+      var rawDataArr = keyDataTable.getProperty(clusterIndex, 0, 'rawData');
+
+      var typeTable = new google.visualization.DataTable();
+      typeTable.addColumn('string', 'Type');
+      typeTable.addColumn('number', 'Keys');
+
+      var ttlTable = new google.visualization.DataTable();
+      ttlTable.addColumn('string', 'Bucket');
+      ttlTable.addColumn('number', 'Items');
+      ttlTable.addColumn('number', 'TTL');
+
+      var sizeTable = new google.visualization.DataTable();
+      sizeTable.addColumn('number', 'Size');
+
+      var getTtlBucket = function(ttl){
+        if (ttl === -1) return 'No expiry';
+        if (ttl < 60) return '< 60s';
+        else if (ttl < 120) return '1min - 2min';
+        else if (ttl < 300) return '2min - 5min';
+        else if (ttl < 600) return '5min - 10min';
+        else if (ttl < 1800) return '10min - 30min';
+        else if (ttl < 3600) return '30min - 60min';
+        else if (ttl < 10800) return '1h - 3h';
+        else if (ttl < 21600) return '3h - 6h';
+        else if (ttl < 43200) return '6h - 12h';
+        else if (ttl < 86400) return '12h - 24h';
+        else if (ttl < 172800) return '1d - 2d';
+        else if (ttl < 608400) return '2d - 7d';
+        else if (ttl < 1209600) return '7d - 14d';
+        else if (ttl < 2592000) return '14d - 30d';
+        else if (ttl < 7776000) return '30d - 90d';
+        else if (ttl < 31536000) return '90d - 365d';
+        return '> 1year';
+      };
+
+      var typeMap = {};
+      var ttlMap = {};
+
+      for(var i=0; i<rawDataArr.length; i++){
+        var row = rawDataArr[i];
+
+        // type
+        var typeIndex = typeMap[row.type];
+        if (typeIndex === undefined){
+          typeIndex = typeTable.addRow([row.type, 0]);
+          typeMap[row.type] = typeIndex;
+        }
+        var occurences = typeTable.getValue(typeIndex, 1);
+        typeTable.setValue(typeIndex, 1, occurences + 1);
+
+        // ttl
+        var ttlBucket = getTtlBucket(row.ttl);
+        var ttlIndex = ttlMap[ttlBucket];
+        if (ttlIndex === undefined){
+          ttlIndex = ttlTable.addRow([ttlBucket, 0, row.ttl]);
+          ttlMap[ttlBucket] = ttlIndex;
+        }
+        var ttlItems = ttlTable.getValue(ttlIndex, 1);
+        ttlTable.setValue(ttlIndex, 1, ttlItems + 1);
+
+        // size
+        sizeTable.addRow([row.size]);
+      }
+
+      var singleType = false;
+      var preferredColor;
+      if(typeTable.getNumberOfRows() === 1){
+        switch(typeTable.getValue(0, 0)){
+          case 'string':
+            singleType = 'Value length';
+            preferredColor = '#3366CC';
+            break;
+          case 'list':
+            singleType = 'List length';
+            preferredColor = '#DC3912';
+            break;
+          case 'set':
+            singleType = 'Cardinality';
+            preferredColor = '#FF9900';
+            break;
+          case 'zset':
+            singleType = 'Cardinality';
+            preferredColor = '#109618';
+            break;
+          case 'hash':
+            singleType = 'Hash length';
+            preferredColor = '#990099';
+            break;
+        }
+      }
+
+      document.getElementById('clusterDetailsLabel').innerText = 'Details for "' + clusterName + '":';
+      document.getElementById('clusterDetailsPane').style.display = '';
+
+      var typeOptions = {
+        title: 'Key types',
+        legend: 'none',
+        pieSliceText: 'label'
+      };
+
+      if (preferredColor){
+        typeOptions.slices = { 0: { color: preferredColor } };
+      }
+
+      ttlTable.sort([{column: 2}]);
+      var ttlTableView = new google.visualization.DataView(ttlTable);
+      ttlTableView.setColumns([0,1]);
+
+      typeChart.draw(typeTable, typeOptions);
+      ttlChart.draw(ttlTableView, {title: 'TTL', legend: 'none'});
+      sizeChart.draw(sizeTable, {title: singleType || 'Size', legend: 'none', histogram: {hideBucketItems: true}});
+    }
+
+    function clearAll() {
+      keyDataTable.removeRows(0, keyDataTable.getNumberOfRows());
+      clusterMap = {};
+      numSamples = 0;
+      document.getElementById('clusterDetailsPane').style.display = 'none';
+      document.getElementById('clusterTablePane').style.display = 'none';
+      drawChart();
+    }
+
+    function startFlow(params) {
+      document.getElementById('stopButton').disabled = false;
+      document.getElementById('startButton').disabled = true;
+      flowMode = true;
+      var loopNum = 0;
+      var run = function(err){
+        if (err){
+          return stopFlow();
+        }
+        if (!flowMode) return;
+        if (loopNum < 5) params.timeout = 100;
+        else if (loopNum < 15) params.timeout = 250;
+        else params.timeout = 500;
+        loopNum++;
+        setTimeout(function(){ getData(params, run); }, 100);
+      };
+      run();
+    }
+
+    function stopFlow() {
+      document.getElementById('stopButton').disabled = true;
+      document.getElementById('startButton').disabled = false;
+
+      flowMode = false;
+    }
+
+    function getData(params, done) {
+      var paramArr = [];
+      for(var key in params){
+        paramArr.push(key + '=' + encodeURIComponent(params[key]));
+      }
+      var xhttp = new XMLHttpRequest();
+      xhttp.onreadystatechange = function() {
+        var el = document.getElementById('connection-msg');
+        if (xhttp.readyState == 4 && xhttp.status == 200) {
+          var parsed = JSON.parse(xhttp.responseText);
+          processData(parsed);
+          el.style.visibility = 'hidden';
+          if (done) done();
+        } else if (xhttp.readyState == 4 && xhttp.status != 200) {
+          var msg;
+          var ct = xhttp.getResponseHeader('Content-Type');
+          if (ct === 'application/json') msg = JSON.parse(xhttp.responseText).error;
+          if (!msg) msg = 'Unknown error';
+          el.innerText = msg;
+          el.style.visibility = '';
+          if (done) done(new Error(msg ? msg : 'Unknown error'));
+        }
+      };
+      xhttp.open("GET", "/api/data?" + paramArr.join('&'), true);
+      xhttp.send();
+    }
+
+    function processData(rawArr) {
+      var regexes = buildRegexes();
+      var stringified = stringifyRules(regexes);
+      if (stringified != defaultRulesStr){
+        window.localStorage.setItem('clusteringRules', stringified);
+      }
+
+      for(var i=0; i<rawArr.length; i++){
+        var row = rawArr[i];
+        var cluster = row.key;
+        for(var j=0;j<regexes.length;j++){
+          var r = regexes[j];
+          cluster = cluster.replace(r.regex, r.replacement);
+        }
+
+        numSamples++;
+
+        var size = row.key.length;
+
+        // super rough constants for size estimation
+        switch(row.type){
+          case "string": size += row.size; break;
+          case "list": size += row.size * 8; break;
+          case "set": size += row.size * 8; break;
+          case "zset": size += row.size * 8; break;
+          case "hash": size += row.size * 16; break;
+        }
+
+        var clusterIndex = clusterMap[cluster];
+        if (clusterIndex === undefined){
+          clusterIndex = keyDataTable.addRow([cluster, 0, 0]);
+          clusterMap[cluster] = clusterIndex;
+        }
+        var occurences = keyDataTable.getValue(clusterIndex, 1);
+        keyDataTable.setValue(clusterIndex, 1, occurences + 1);
+        var origSize = keyDataTable.getValue(clusterIndex, 2);
+        keyDataTable.setValue(clusterIndex, 2, origSize + size);
+
+        var rawDataArr = keyDataTable.getProperty(clusterIndex, 0, 'rawData');
+        if (rawDataArr === null){
+          rawDataArr = [];
+          keyDataTable.setProperty(clusterIndex, 0, 'rawData', rawDataArr);
+        }
+        rawDataArr.push(row);
+      }
+      drawChart();
+    }
+
+    function buildRegexes() {
+      var result = [];
+      var el = document.getElementById('regex-table');
+      var rows = el.children;
+      for(var i=0; i<rows.length;i++){
+        var row = rows[i];
+        var inputs = row.getElementsByTagName('input');
+        if (inputs.length != 2) continue;
+        var regexEl = inputs[0];
+        var replEl = inputs[1];
+
+        var m = regexEl.value.match(/^[/](.+)[/]([gymui]*)$/);
+        if (!m){
+          regexEl.parentNode.style.borderColor = 'red';
+          continue;
+        }
+        regexEl.parentNode.style.borderColor = '';
+        var regex = new RegExp(m[1], m[2]);
+        result.push({ regex: regex, replacement: replEl.value });
+      }
+      return result;
+    }
+  </script>
+</head>
+<body onload="populateRules();">
+  <div class="header">
+    Host:
+    <div style="position: relative; display: inline-block;">
+      <span id="connection-msg" class="tooltip" style="visibility: hidden;"></span>
+      <div class="control">
+        <input id="redishost" type="text" name="redishost" value="localhost" size="30">
+      </div> &nbsp; &nbsp;
+      Port:
+      <div class="control"><input id="redisport" type="text" name="redisport" value="6379" size="5" maxlength="5"></div> &nbsp; &nbsp;
+      <button class="btn" type="button" onclick="return getData({redishost: document.getElementById('redishost').value, redisport: document.getElementById('redisport').value, timeout: -1});">Get sample</button>
+      <button class="btn" id="startButton" type="button" onclick="return startFlow({redishost: document.getElementById('redishost').value, redisport: document.getElementById('redisport').value});">Analyse</button>
+      <button class="btn" id="stopButton" type="button" onclick="return stopFlow();" disabled="true">Stop analysis</button>
+      <button class="btn" type="button" onclick="return clearAll();">Clear</button>
+    </div>
+    <div style="display: inline-block; float: right;"><button class="btn" onclick="var el=document.getElementById('advanced');el.style.display=el.style.display==='none'?'block':'none';return false;">More options &gt;&gt;</button></div>
+  </div>
+  <div id="advanced" class="header" style="background-color: antiquewhite; padding: 0.5em; display: none;">
+    <table style="font-size: small;">
+    <thead>
+      <tr>
+        <th>Clustering rules</th>
+        <th>Regex</th>
+        <th>Replacement</th>
+        <th>
+          <button class="btn btn-xs" onclick="addClusteringRule('', '')">Add rule</button>&nbsp;
+          <button class="btn btn-xs" onclick="resetRules()">Reset to defaults</button>&nbsp;
+          <button class="btn btn-xs" onclick="drawDetailsTable()">Show cluster table</button>&nbsp;
+        </th>
+      </tr>
+    </thead>
+    <tbody id="regex-table">
+    </tbody>
+    </table>
+  </div>
+  <!-- Identify where the chart should be drawn. -->
+  <span id="keyDistributionChart" class="primary-chart" style="width: 39%;"></span>
+  <span id="keySizeChart" class="primary-chart" style="width: 60%;"></span>
+  <div id="clusterDetailsPane" style="display: none;">
+    <div><span id="clusterDetailsLabel" style="font-size: small; font-weight: bold; padding-left: 24px;"></span></div>
+    <span id="typeChart" style="display: inline-block; width: 33%; height: 250px;"></span>
+    <span id="ttlChart" style="display: inline-block; width: 33%; height: 250px;"></span>
+    <span id="sizeChart" style="display: inline-block; width: 33%; height: 250px;"></span>
+  </div>
+  <div id="clusterTablePane" style="display: none;">
+    <span id="clusterTable" style="margin: 1em;"></span>
+  </div>
+</body>

@@ -1,0 +1,24 @@
+{
+  "name": "redis-scanner",
+  "version": "0.1.0",
+  "description": "A module to sample redis keys and provide summary data",
+  "author": "michal.mhr@gmail.com",
+  "bin": {
+    "redis-scanner": "./redis-scanner.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/"
+  },
+  "keywords": [
+    "redis",
+    "scanner",
+    "sampler",
+    "analyzer",
+    "gui"
+  ],
+  "dependencies": {
+    "redis": "2.5.x"
+  },
+  "license": "MIT"
+}
