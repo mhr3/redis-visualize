@@ -38,6 +38,7 @@ const PORT = 8079;
 var REDIS_HOST = 'localhost';
 var REDIS_PORT = 6379;
 var DEFAULT_TIMEOUT = 500;
+var REDIS_PASSWORD = null;
 
 const LUA_SCRIPT = String.raw`
 local key = redis.call('randomkey');
@@ -60,12 +61,13 @@ var clients = {};
 function getRedisData(params, done) {
   var host = params.redishost || REDIS_HOST;
   var port = params.redisport || REDIS_PORT;
+  var password = params.redispassword || REDIS_PASSWORD;
   var timeout = parseInt(params.timeout) || DEFAULT_TIMEOUT;
 
   var key = util.format("%s:%s", host, port);
   var client = clients[key];
   if (!client){
-    client = redis.createClient(port, host, { retry_strategy: (options) => {
+    client = redis.createClient(port, host, { password: password, retry_strategy: (options) => {
       if (options.error) {
         delete clients[key];
         return options.error;
