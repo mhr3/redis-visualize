@@ -38,7 +38,7 @@ const PORT = 8079;
 var REDIS_HOST = 'localhost';
 var REDIS_PORT = 6379;
 var DEFAULT_TIMEOUT = 500;
-var REDIS_PASSWORD = null;
+var REDIS_PASSWORD = undefined;
 
 const LUA_SCRIPT = String.raw`
 local key = redis.call('randomkey');
