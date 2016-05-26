@@ -1,6 +1,6 @@
 {
   "name": "redis-visualize",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A module to sample redis keys and provide summary data",
   "author": "michal.mhr@gmail.com",
   "bin": {
