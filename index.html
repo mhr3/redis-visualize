@@ -489,8 +489,10 @@
       </div> &nbsp; &nbsp;
       Port:
       <div class="control"><input id="redisport" type="text" name="redisport" value="6379" size="5" maxlength="5"></div> &nbsp; &nbsp;
-      <button class="btn" type="button" onclick="return getData({redishost: document.getElementById('redishost').value, redisport: document.getElementById('redisport').value, timeout: -1});">Get sample</button>
-      <button class="btn" id="startButton" type="button" onclick="return startFlow({redishost: document.getElementById('redishost').value, redisport: document.getElementById('redisport').value});">Analyse</button>
+      Password:
+      <div class="control"><input id="redispassword" type="text" name="redispassword" value="" size="30"></div> &nbsp; &nbsp;
+      <button class="btn" type="button" onclick="return getData({redishost: document.getElementById('redishost').value, redisport: document.getElementById('redisport').value, timeout: -1}, redispassword: document.getElementById('redispassword').value});">Get sample</button>
+      <button class="btn" id="startButton" type="button" onclick="return startFlow({redishost: document.getElementById('redishost').value, redisport: document.getElementById('redisport').value, redispassword: document.getElementById('redispassword').value});">Analyse</button>
       <button class="btn" id="stopButton" type="button" onclick="return stopFlow();" disabled="true">Stop analysis</button>
       <button class="btn" type="button" onclick="return clearAll();">Clear</button>
     </div>
